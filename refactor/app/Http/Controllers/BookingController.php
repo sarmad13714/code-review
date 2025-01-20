@@ -30,22 +30,31 @@ class BookingController extends Controller
     }
 
     /**
+     * Helper function to check if the user is an admin. Can make a new helper file to use this in the project globally
+     *
+     * @return bool
+     */
+    private function isAdmin()
+    {
+        $user = Auth::user();
+        return in_array($user->user_type, [env('ADMIN_ROLE_ID'), env('SUPERADMIN_ROLE_ID')]);
+    }
+
+    /**
      * @param Request $request
      * @return mixed
      */
     public function index(Request $request)
     {
-        if($user_id = $request->get('user_id')) {
+        $user = Auth::user();
 
-            $response = $this->repository->getUsersJobs($user_id);
-
-        }
-        elseif($request->__authenticatedUser->user_type == env('ADMIN_ROLE_ID') || $request->__authenticatedUser->user_type == env('SUPERADMIN_ROLE_ID'))
-        {
+        if ($this->isAdmin()) {
             $response = $this->repository->getAll($request);
+        } elseif ($user_id = $request->get('user_id')) {
+            $response = $this->repository->getUsersJobs($user_id);
         }
 
-        return response($response);
+        return response()->json($response);
     }
 
     /**
@@ -56,21 +65,19 @@ class BookingController extends Controller
     {
         $job = $this->repository->with('translatorJobRel.user')->find($id);
 
-        return response($job);
+        return response()->json($job);
     }
 
     /**
      * @param Request $request
      * @return mixed
      */
-    public function store(Request $request)
+     public function store(Request $request)
     {
-        $data = $request->all();
+        $user = Auth::user();
+        $response = $this->repository->store($user, $request->all());
 
-        $response = $this->repository->store($request->__authenticatedUser, $data);
-
-        return response($response);
-
+        return response()->json($response);
     }
 
     /**
@@ -80,11 +87,10 @@ class BookingController extends Controller
      */
     public function update($id, Request $request)
     {
-        $data = $request->all();
-        $cuser = $request->__authenticatedUser;
-        $response = $this->repository->updateJob($id, array_except($data, ['_token', 'submit']), $cuser);
+        $user = Auth::user();
+        $response = $this->repository->updateJob($id, array_except($request->all(), ['_token', 'submit']), $user);
 
-        return response($response);
+        return response()->json($response);
     }
 
     /**
@@ -123,7 +129,7 @@ class BookingController extends Controller
     public function acceptJob(Request $request)
     {
         $data = $request->all();
-        $user = $request->__authenticatedUser;
+        $user = Auth::user();
 
         $response = $this->repository->acceptJob($data, $user);
 
@@ -196,62 +202,33 @@ class BookingController extends Controller
     {
         $data = $request->all();
 
-        if (isset($data['distance']) && $data['distance'] != "") {
-            $distance = $data['distance'];
-        } else {
-            $distance = "";
-        }
-        if (isset($data['time']) && $data['time'] != "") {
-            $time = $data['time'];
-        } else {
-            $time = "";
-        }
-        if (isset($data['jobid']) && $data['jobid'] != "") {
-            $jobid = $data['jobid'];
-        }
+        $distance = $data['distance'] ?? '';
+        $time = $data['time'] ?? '';
+        $jobid = $data['jobid'] ?? null;
+        $session = $data['session_time'] ?? '';
+        $flagged = ($data['flagged'] == 'true') ? 'yes' : 'no';
+        $manually_handled = ($data['manually_handled'] == 'true') ? 'yes' : 'no';
+        $by_admin = ($data['by_admin'] == 'true') ? 'yes' : 'no';
+        $admincomment = $data['admincomment'] ?? '';
 
-        if (isset($data['session_time']) && $data['session_time'] != "") {
-            $session = $data['session_time'];
-        } else {
-            $session = "";
-        }
-
-        if ($data['flagged'] == 'true') {
-            if($data['admincomment'] == '') return "Please, add comment";
-            $flagged = 'yes';
-        } else {
-            $flagged = 'no';
-        }
         
-        if ($data['manually_handled'] == 'true') {
-            $manually_handled = 'yes';
-        } else {
-            $manually_handled = 'no';
+        if ($flagged == 'yes' && $admincomment == '') {
+            return response("Please, add comment", 400); 
         }
 
-        if ($data['by_admin'] == 'true') {
-            $by_admin = 'yes';
-        } else {
-            $by_admin = 'no';
-        }
-
-        if (isset($data['admincomment']) && $data['admincomment'] != "") {
-            $admincomment = $data['admincomment'];
-        } else {
-            $admincomment = "";
-        }
+        
         if ($time || $distance) {
-
-            $affectedRows = Distance::where('job_id', '=', $jobid)->update(array('distance' => $distance, 'time' => $time));
+            Distance::where('job_id', '=', $jobid)
+                ->update(compact('distance', 'time'));
         }
 
+        
         if ($admincomment || $session || $flagged || $manually_handled || $by_admin) {
-
-            $affectedRows1 = Job::where('id', '=', $jobid)->update(array('admin_comments' => $admincomment, 'flagged' => $flagged, 'session_time' => $session, 'manually_handled' => $manually_handled, 'by_admin' => $by_admin));
-
+            Job::where('id', '=', $jobid)
+                ->update(compact('admincomment', 'flagged', 'session', 'manually_handled', 'by_admin'));
         }
 
-        return response('Record updated!');
+        return response()->json(['message' => 'Record updated!']);
     }
 
     public function reopen(Request $request)
