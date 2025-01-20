@@ -1988,103 +1988,97 @@ class BookingRepository extends BaseRepository
 
     public function bookingExpireNoAccepted()
     {
-        $languages = Language::where('active', '1')->orderBy('language')->get();
+        $languages = $this->getActiveLanguages();
         $requestdata = Request::all();
-        $all_customers = DB::table('users')->where('user_type', '1')->lists('email');
-        $all_translators = DB::table('users')->where('user_type', '2')->lists('email');
-
+        $all_customers = $this->getAllCustomersEmails();
+        $all_translators = $this->getAllTranslatorsEmails();
         $cuser = Auth::user();
         $consumer_type = TeHelper::getUsermeta($cuser->id, 'consumer_type');
 
-
         if ($cuser && ($cuser->is('superadmin') || $cuser->is('admin'))) {
-            $allJobs = DB::table('jobs')
-                ->join('languages', 'jobs.from_language_id', '=', 'languages.id')
-                ->where('jobs.ignore_expired', 0);
-            if (isset($requestdata['lang']) && $requestdata['lang'] != '') {
-                $allJobs->whereIn('jobs.from_language_id', $requestdata['lang'])
-                    ->where('jobs.status', 'pending')
-                    ->where('jobs.ignore_expired', 0)
-                    ->where('jobs.due', '>=', Carbon::now());
-                /*$allJobs->where('jobs.from_language_id', '=', $requestdata['lang']);*/
-            }
-            if (isset($requestdata['status']) && $requestdata['status'] != '') {
-                $allJobs->whereIn('jobs.status', $requestdata['status'])
-                    ->where('jobs.status', 'pending')
-                    ->where('jobs.ignore_expired', 0)
-                    ->where('jobs.due', '>=', Carbon::now());
-                /*$allJobs->where('jobs.status', '=', $requestdata['status']);*/
-            }
-            if (isset($requestdata['customer_email']) && $requestdata['customer_email'] != '') {
-                $user = DB::table('users')->where('email', $requestdata['customer_email'])->first();
-                if ($user) {
-                    $allJobs->where('jobs.user_id', '=', $user->id)
-                        ->where('jobs.status', 'pending')
-                        ->where('jobs.ignore_expired', 0)
-                        ->where('jobs.due', '>=', Carbon::now());
-                }
-            }
-            if (isset($requestdata['translator_email']) && $requestdata['translator_email'] != '') {
-                $user = DB::table('users')->where('email', $requestdata['translator_email'])->first();
-                if ($user) {
-                    $allJobIDs = DB::table('translator_job_rel')->where('user_id', $user->id)->lists('job_id');
-                    $allJobs->whereIn('jobs.id', $allJobIDs)
-                        ->where('jobs.status', 'pending')
-                        ->where('jobs.ignore_expired', 0)
-                        ->where('jobs.due', '>=', Carbon::now());
-                }
-            }
-            if (isset($requestdata['filter_timetype']) && $requestdata['filter_timetype'] == "created") {
-                if (isset($requestdata['from']) && $requestdata['from'] != "") {
-                    $allJobs->where('jobs.created_at', '>=', $requestdata["from"])
-                        ->where('jobs.status', 'pending')
-                        ->where('jobs.ignore_expired', 0)
-                        ->where('jobs.due', '>=', Carbon::now());
-                }
-                if (isset($requestdata['to']) && $requestdata['to'] != "") {
-                    $to = $requestdata["to"] . " 23:59:00";
-                    $allJobs->where('jobs.created_at', '<=', $to)
-                        ->where('jobs.status', 'pending')
-                        ->where('jobs.ignore_expired', 0)
-                        ->where('jobs.due', '>=', Carbon::now());
-                }
-                $allJobs->orderBy('jobs.created_at', 'desc');
-            }
-            if (isset($requestdata['filter_timetype']) && $requestdata['filter_timetype'] == "due") {
-                if (isset($requestdata['from']) && $requestdata['from'] != "") {
-                    $allJobs->where('jobs.due', '>=', $requestdata["from"])
-                        ->where('jobs.status', 'pending')
-                        ->where('jobs.ignore_expired', 0)
-                        ->where('jobs.due', '>=', Carbon::now());
-                }
-                if (isset($requestdata['to']) && $requestdata['to'] != "") {
-                    $to = $requestdata["to"] . " 23:59:00";
-                    $allJobs->where('jobs.due', '<=', $to)
-                        ->where('jobs.status', 'pending')
-                        ->where('jobs.ignore_expired', 0)
-                        ->where('jobs.due', '>=', Carbon::now());
-                }
-                $allJobs->orderBy('jobs.due', 'desc');
-            }
-
-            if (isset($requestdata['job_type']) && $requestdata['job_type'] != '') {
-                $allJobs->whereIn('jobs.job_type', $requestdata['job_type'])
-                    ->where('jobs.status', 'pending')
-                    ->where('jobs.ignore_expired', 0)
-                    ->where('jobs.due', '>=', Carbon::now());
-                /*$allJobs->where('jobs.job_type', '=', $requestdata['job_type']);*/
-            }
-            $allJobs->select('jobs.*', 'languages.language')
-                ->where('jobs.status', 'pending')
-                ->where('ignore_expired', 0)
-                ->where('jobs.due', '>=', Carbon::now());
-
-            $allJobs->orderBy('jobs.created_at', 'desc');
+            $allJobs = $this->getJobsQuery($requestdata);
             $allJobs = $allJobs->paginate(15);
-
         }
-        return ['allJobs' => $allJobs, 'languages' => $languages, 'all_customers' => $all_customers, 'all_translators' => $all_translators, 'requestdata' => $requestdata];
+
+        return [
+            'allJobs' => $allJobs,
+            'languages' => $languages,
+            'all_customers' => $all_customers,
+            'all_translators' => $all_translators,
+            'requestdata' => $requestdata
+        ];
     }
+
+    private function getActiveLanguages()
+    {
+        return Language::where('active', 1)->orderBy('language')->get();
+    }
+
+    private function getAllCustomersEmails()
+    {
+        return DB::table('users')->where('user_type', 1)->pluck('email');
+    }
+
+    private function getAllTranslatorsEmails()
+    {
+        return DB::table('users')->where('user_type', 2)->pluck('email');
+    }
+
+    private function getJobsQuery($requestdata)
+    {
+        $query = DB::table('jobs')
+            ->join('languages', 'jobs.from_language_id', '=', 'languages.id')
+            ->where('jobs.ignore_expired', 0)
+            ->where('jobs.due', '>=', Carbon::now())
+            ->where('jobs.status', 'pending');
+
+        if (!empty($requestdata['lang'])) {
+            $query->whereIn('jobs.from_language_id', $requestdata['lang']);
+        }
+
+        if (!empty($requestdata['status'])) {
+            $query->whereIn('jobs.status', $requestdata['status']);
+        }
+
+        if (!empty($requestdata['customer_email'])) {
+            $user = DB::table('users')->where('email', $requestdata['customer_email'])->first();
+            if ($user) {
+                $query->where('jobs.user_id', $user->id);
+            }
+        }
+
+        if (!empty($requestdata['translator_email'])) {
+            $user = DB::table('users')->where('email', $requestdata['translator_email'])->first();
+            if ($user) {
+                $allJobIDs = DB::table('translator_job_rel')->where('user_id', $user->id)->pluck('job_id');
+                $query->whereIn('jobs.id', $allJobIDs);
+            }
+        }
+
+        if (!empty($requestdata['filter_timetype'])) {
+            $this->applyDateFilters($query, $requestdata);
+        }
+
+        return $query->select('jobs.*', 'languages.language')->orderBy('jobs.created_at', 'desc');
+    }
+
+    private function applyDateFilters($query, $requestdata)
+    {
+        $dateType = $requestdata['filter_timetype'];
+        $dateField = $dateType === 'created' ? 'jobs.created_at' : 'jobs.due';
+        
+        if (!empty($requestdata['from'])) {
+            $query->where($dateField, '>=', $requestdata['from']);
+        }
+
+        if (!empty($requestdata['to'])) {
+            $to = $requestdata['to'] . " 23:59:00";
+            $query->where($dateField, '<=', $to);
+        }
+
+        $query->orderBy($dateField, 'desc');
+    }
+
 
     public function ignoreExpiring($id)
     {
@@ -2104,10 +2098,11 @@ class BookingRepository extends BaseRepository
 
     public function ignoreThrottle($id)
     {
-        $throttle = Throttles::find($id);
+        $throttle = Throttles::findOrFail($id);
         $throttle->ignore = 1;
         $throttle->save();
-        return ['success', 'Changes saved'];
+
+        return ['success' => 'Changes saved successfully.'];
     }
 
     public function reopen($request)
